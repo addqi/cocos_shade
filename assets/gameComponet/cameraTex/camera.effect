@@ -1,0 +1,55 @@
+CCEffect %{
+common-pass-config: &common-pass-config
+  depthStencilState:      
+    depthTest: false  
+    depthWrite: false
+  properties: 
+    bgTexture: { value: grey }   # 对应 RenderTexture
+
+techniques:
+  - name: mix-blend-mode
+    passes:
+      - vert: vs:vert
+        frag: fs:frag
+        <<: *common-pass-config
+}%
+
+CCProgram vs %{
+    precision highp float;
+    #include <cc-global>
+    #include <common/common-define>  // 引入 CC_HANDLE_RT_SAMPLE_FLIP 内置函数
+    in vec3 a_position;
+    in vec2 a_texCoord;   
+    out vec2 uv;
+
+    vec4 vert() {
+    vec4 pos = vec4(a_position, 1);
+
+    pos = cc_matViewProj * pos;
+    uv = a_texCoord;
+    
+    // 解决不同平台和渲染管线中 RenderTexture 的坐标系差异，可处理 RenderTexture 采样时的 UV 坐标翻转问题
+    //uv = CC_HANDLE_RT_SAMPLE_FLIP(uv);
+    
+    return  pos;
+  }
+}%
+
+CCProgram fs %{
+  precision highp float;
+  #include <sprite-texture> 
+
+  in vec2 uv;
+
+  uniform sampler2D bgTexture;  // 纹理无需走 UBO 形式定义
+
+  vec4 frag() {
+      // 前景色（暂时没用到）
+      vec4 color = texture(cc_spriteTexture, uv);
+
+      // 背景色（目标色）
+      vec4 baseColor = texture(bgTexture, uv);
+
+      return baseColor;  // 先不混合，直接返回背景色看下效果
+  }
+}%
