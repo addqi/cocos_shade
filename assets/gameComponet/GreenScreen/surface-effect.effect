@@ -1,0 +1,37 @@
+CCEffect %{
+  techniques:
+  - name: chromakey
+    passes:
+    - vert: vs:vert
+      frag: fs:frag
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+      depthStencilState:      
+          depthTest: false  
+          depthWrite: false
+}%
+CCProgram vs %{
+  #include "chunk.chunk"     // 复用 Chunk
+}%
+
+CCProgram fs %{
+  precision highp float;
+  #include <sprite-texture> 
+
+  in vec2 uv;
+
+  vec4 frag() {
+    vec4 color = texture(cc_spriteTexture, uv); 
+    
+    vec3 targetColor = vec3(31.0/255.0, 182.0/255.0, 78.0/255.0);
+    if(distance(color.rgb, targetColor) < 0.2 || 
+      (color.r < 0.2 && color.b < 0.4 && color.g > 0.6)){
+        discard;
+    }
+
+    return color;
+  }
+}%

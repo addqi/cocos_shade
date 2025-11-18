@@ -1,0 +1,64 @@
+CCEffect %{
+  techniques:
+  - name: edgedetection
+    passes:
+    - vert: vs:vert
+      frag: fs:frag
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+      depthStencilState:      
+          depthTest: false  
+          depthWrite: false
+      properties: 
+        lineThickness: { value: 1.0, editor: { range: [0.5, 5.0] } }
+}%
+
+CCProgram vs %{
+  #include "../chunk.chunk"
+}%
+
+CCProgram fs %{
+  precision highp float;
+  #include <sprite-texture> 
+  #include <cc-global>
+
+  in vec2 uv;
+  in vec4 v_color;
+
+  uniform Args {
+    float lineThickness;
+  };
+
+  vec4 frag() {
+    // 使用屏幕尺寸计算单个像素在UV空间中的尺寸
+    vec2 pixelSize = 1.0 / cc_screenSize.xy;
+
+    // 获取周围像素
+    vec4 topLeft = texture(cc_spriteTexture, uv + vec2(-pixelSize.x, pixelSize.y));
+    vec4 top = texture(cc_spriteTexture, uv + vec2(0.0, pixelSize.y));
+    vec4 topRight = texture(cc_spriteTexture, uv + vec2(pixelSize.x, pixelSize.y));
+    vec4 left = texture(cc_spriteTexture, uv + vec2(-pixelSize.x, 0.0));
+    vec4 right = texture(cc_spriteTexture, uv + vec2(pixelSize.x, 0.0));
+    vec4 bottomLeft = texture(cc_spriteTexture, uv + vec2(-pixelSize.x, -pixelSize.y));
+    vec4 bottom = texture(cc_spriteTexture, uv + vec2(0.0, -pixelSize.y));
+    vec4 bottomRight = texture(cc_spriteTexture, uv + vec2(pixelSize.x, -pixelSize.y));
+
+    // 计算梯度
+    vec4 gx = -topLeft - 2.0 * left - bottomLeft + topRight + 2.0 * right + bottomRight;
+    vec4 gy = -topLeft - 2.0 * top - topRight + bottomLeft + 2.0 * bottom + bottomRight;
+
+    // 使用红色通道计算边缘强度
+    float edge = length(vec2(gx.r, gy.r));  // 等同于 edge = sqrt(gx² + gy²);
+
+    // 应用线条粗细控制 - 降低阈值使线条更粗
+    float threshold = 0.1 / lineThickness;
+    edge = step(threshold, edge);
+
+    vec3 orig=texture(cc_spriteTexture,uv).rgb;
+    float a=texture(cc_spriteTexture,uv).a;
+    return vec4(vec3( 1.0-edge), a);
+  }
+}%

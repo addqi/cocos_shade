@@ -1,0 +1,148 @@
+CCEffect %{
+  techniques:
+  - name: edgedetection
+    passes:
+    - vert: vs:vert
+      frag: fs:frag
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+      depthStencilState:      
+          depthTest: false  
+          depthWrite: false
+      properties: 
+          textureSize: { value: [192, 192] }       # 纹理尺寸
+          timeFactor: { value: 0.0 }
+          timeChange: { value: 0.0 }
+}%
+
+CCProgram vs %{
+  #include "../chunk.chunk"
+}%
+
+CCProgram fs %{
+  precision highp float;
+  #include <sprite-texture> 
+  #include <cc-global>
+
+  in vec2 uv;
+  in vec4 v_color;
+
+ uniform LutArgs {
+    vec2 textureSize;
+    float timeFactor;
+    float timeChange;
+  };
+    /** 电影胶卷质感 **/
+  float grainIntensity = 3.25;               // 颗粒感强度
+  float vignetteIntensity = 0.8;             // 暗角强度
+  vec3 fadeColor = vec3(0.15, 0.15, 0.05);   // 褪色颜色
+  float filmGrain(vec2 uv,float time){
+    //噪声算法
+    return fract(sin(dot(uv*time, vec2(12.9898, 78.233))) * 43758.5453);
+  }
+
+  float vignette(vec2 uv) {
+    // 计算到中心的距离
+    vec2 center = vec2(0.5, 0.5);
+    float dist = distance(uv, center);
+    
+    // 通过 vignetteIntensity 来控制暗角扩散程度，使用 smoothstep 来平滑边缘暗角
+    return 1.0 - smoothstep(0.3, 0.8, dist * vignetteIntensity);
+  }
+
+  vec3 filmCurve(vec3 color) {
+  vec3 x = color * 1.2;
+  vec3 curve = x * (1.0 / (1.0 + exp(-5.0*(x-0.5))));
+  return mix(color, curve, 0.7);
+  }
+ // 色彩分级（橙青色调）
+  vec3 filmColorGrade(vec3 color) {
+    // 分离色调：高光偏橙，阴影偏青
+    vec3 shadows = vec3(0.1, 0.25, 0.3); // 青色调
+    vec3 midtones = vec3(0.7, 0.5, 0.3); // 橙色调
+    
+    // 计算亮度
+    float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+    
+    // 混合色调
+    vec3 graded = mix(shadows, midtones, smoothstep(0.2, 0.8, luminance));
+    
+    // 混合原始颜色
+    return mix(color, graded * color, 0.4);
+  }
+  
+  // 褪色效果
+  vec3 filmFade(vec3 color) {
+    return mix(color, fadeColor, 0.15);
+  }
+
+  vec4 film(vec4 color, vec2 uv) {
+  
+    // 应用胶片曲线
+    color.rgb = filmCurve(color.rgb);
+    
+    // 应用色彩分级
+    color.rgb = filmColorGrade(color.rgb);
+    
+    // 添加褪色效果
+    color.rgb = filmFade(color.rgb);
+    
+    // 应用暗角
+    color.rgb *= vignette(uv);
+    
+    // 添加胶片颗粒（带时间变化）
+    float grain = filmGrain(uv, timeFactor) * grainIntensity;
+    color.rgb += (grain - 0.5) * 0.1;
+    
+    return color;
+  }
+  
+  // 检查UV坐标是否在有效范围内
+  bool isValidUV(vec2 uvCoord) {
+    return uvCoord.x >= 0.0 && uvCoord.x <= 1.0 && uvCoord.y >= 0.0 && uvCoord.y <= 1.0;
+  }
+
+  // 故障效果
+  vec4 glitchEffect(vec4 color, vec2 uv) {
+    float intensity = 0.02; // 位移强度
+    float time=timeChange;
+
+    // 红色通道位移
+    vec2 redUV = uv + vec2(cos(time * 10.0) * intensity, sin(time * 8.0) * intensity);
+    float r = isValidUV(redUV) ? texture(cc_spriteTexture, redUV).r : color.r;
+    
+    // 绿色通道位移
+    vec2 greenUV = uv + vec2(sin(time * 12.0) * intensity, cos(time * 9.0) * intensity);
+    float g = isValidUV(greenUV) ? texture(cc_spriteTexture, greenUV).g : color.g;
+    
+    // 蓝色通道位移
+    vec2 blueUV = uv + vec2(cos(time * 7.0) * intensity, sin(time * 11.0) * intensity);
+    float b = isValidUV(blueUV) ? texture(cc_spriteTexture, blueUV).b : color.b;
+    
+    // 混合原始颜色和故障效果，避免边缘问题
+    vec3 glitchColor = vec3(r, g, b);
+    vec3 finalColor = mix(color.rgb, glitchColor, 0.7);
+    
+    return vec4(finalColor, 1);
+  }
+
+  vec4 frag() {
+    vec4 color = texture(cc_spriteTexture, uv); 
+
+    #if USE_LOCAL
+      color *= v_color;
+    #endif
+
+    // 通过自定义宏选择要使用的 LUT 滤镜
+    #if USE_GLITCH
+      color = glitchEffect(color, uv);
+    #elif USE_FILM
+      color = film(color, uv);
+    #endif
+
+    return color;
+  }
+}%

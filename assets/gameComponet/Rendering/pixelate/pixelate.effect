@@ -1,0 +1,44 @@
+CCEffect %{
+  techniques:
+  - name: opaque
+    passes:
+    - vert: vs:vert
+      frag: fs:frag
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+      depthStencilState:      
+          depthTest: false  
+          depthWrite: false
+      properties: 
+        pixelSize: {value: 100.0, editor: { range: [1.0,100.0] } }
+}%
+
+CCProgram vs %{
+  #include "../chunk.chunk"
+}%
+
+CCProgram fs %{
+  precision highp float;
+  #include <sprite-texture> 
+
+  in vec2 uv;
+  in vec4 v_color;
+
+  uniform Args {
+    float pixelSize;
+  };
+
+  vec4 pixelate(vec2 uv) {
+      vec2 pixelatedUV = floor(uv * pixelSize) / pixelSize;
+      return texture(cc_spriteTexture, pixelatedUV);
+  }
+
+  vec4 frag() {
+    vec4 color = pixelate(uv); 
+
+    return color;
+  }
+}%

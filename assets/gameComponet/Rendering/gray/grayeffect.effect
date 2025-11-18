@@ -1,0 +1,49 @@
+CCEffect %{
+  techniques:
+  - name: chromakey
+    passes:
+    - vert: vs:vert
+      frag: fs:frag
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+      depthStencilState:      
+          depthTest: false  
+          depthWrite: false
+      properties: 
+        grayPercent: { value: 0.0, editor: { range: [0.0, 1.0] } }
+}%
+CCProgram vs %{
+  #include "../chunk.chunk"     // 复用 Chunk
+}%
+
+CCProgram fs %{
+  precision highp float;
+  #include <sprite-texture> 
+
+  in vec2 uv;
+  in vec4 v_color;
+
+  uniform Args {
+    float grayPercent;
+  };
+
+  //获取灰色点积
+  vec4 grayscale(vec4 color){
+    float gray=dot(color.rgb,vec3(0.299, 0.587, 0.114));
+    return vec4(vec3(gray),color.a);
+  }
+
+  vec4 frag() {
+    vec4 color = texture(cc_spriteTexture, uv); 
+    #if USE_LOCAL
+      color *=v_color;
+    #endif
+
+    vec4 grayColor=grayscale(color);
+
+    return color + (grayColor - color) * grayPercent;
+  }
+}%

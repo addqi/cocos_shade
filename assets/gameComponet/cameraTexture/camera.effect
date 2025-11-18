@@ -1,0 +1,61 @@
+CCEffect %{
+  common-pass-config: &common-pass-config
+    depthStencilState:      
+      depthTest: false  
+      depthWrite: false
+    properties: 
+      bgTexture: { value: grey }   # 对应 RenderTexture
+
+  techniques:
+    - name: mix-blend-mode
+      passes:
+        - vert: vs:vert
+          frag: fs:frag
+          <<: *common-pass-config
+}%
+
+CCProgram vs %{
+    precision highp float;
+    #include <cc-global>
+    #include <common/common-define>
+
+    // 输入属性
+    in vec3 a_position;
+    in vec2 a_texCoord;   
+    
+    // 输出变量
+    out vec2 uv;
+    
+
+    vec4 vert() {
+      vec4 pos = vec4(a_position, 1);
+      pos = cc_matViewProj * pos;
+      uv = a_texCoord;
+      uv = CC_HANDLE_RT_SAMPLE_FLIP(uv);
+      return pos;
+    }
+}%
+
+CCProgram fs %{
+  precision highp float;
+  #include <sprite-texture> 
+
+  // 输入变量（来自顶点着色器）
+  in vec2 uv;
+
+  // uniform变量
+  uniform sampler2D bgTexture;
+
+  vec4 frag() {
+        // 前景色（暂时没用到）
+        vec4 color = texture(cc_spriteTexture, uv);
+          // 背景色（目标色）
+        vec4 baseColor = texture(bgTexture, uv);
+
+        return baseColor; 
+      }
+
+}%
+
+
+

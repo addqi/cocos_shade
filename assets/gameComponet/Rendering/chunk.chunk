@@ -1,0 +1,28 @@
+precision highp float;
+#include <cc-global>
+#if USE_LOCAL
+  #include <builtin/uniforms/cc-local>
+#endif
+in vec3 a_position;
+in vec2 a_texCoord;   
+out vec2 uv;
+
+#if USE_LOCAL
+  in vec4 a_color; 
+  out vec4 v_color; 
+#endif
+
+
+vec4 vert() {
+  vec4 pos = vec4(a_position, 1);
+
+  #if USE_LOCAL
+    pos = cc_matWorld * pos; 
+    v_color = a_color;
+  #endif
+
+  pos = cc_matViewProj * pos;
+  uv = a_texCoord;
+  
+  return  pos;
+}

@@ -1,0 +1,77 @@
+// 【示例代码 1.1】
+
+CCEffect %{
+  techniques:
+  - name: dye-demo
+    passes:
+    - vert: vs:vert
+      frag: fs:frag
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+      depthStencilState:
+        depthWrite: false
+        depthTest: false
+      properties: 
+        coverColor: { value: [1.0,1.0,1.0,0.0],editor: { type: color} }
+        mixPercent: { value: 0.0, editor: { range: [0.0, 1.0] } }
+      rasterizerState:  #光栅化状态配置
+        cullMode: none  #关闭背面剔除
+}%
+
+
+CCProgram vs %{
+  precision highp float;
+  #include <cc-global>
+  #if USE_LOCAL
+    #include <builtin/uniforms/cc-local>
+  #endif
+
+  in vec3 a_position;
+  in vec3 a_texCoord;
+  in vec4 a_color; //引入 Cocos 内置的顶点颜色变量
+
+  out vec2 uv;
+  out vec4 v_color; //输出给片元着色器的中介变量
+  
+  vec4 vert() {
+    vec4 pos = vec4(a_position, 1);
+
+    #if USE_LOCAL
+      pos= cc_matWorld * pos;
+    #endif
+
+    pos = cc_matViewProj * pos;
+
+    uv = a_texCoord.xy;       // 赋值
+    v_color = a_color;
+    
+    return  pos;
+  }
+}%
+
+CCProgram fs %{
+  precision highp float;
+  #include <sprite-texture>
+
+  in vec2 uv;
+  in vec4 v_color;
+
+  uniform Args {
+    vec4 coverColor;
+    float mixPercent;
+  };
+
+  vec4 frag() {
+     vec4 color = texture(cc_spriteTexture, uv);
+     color *= v_color;
+
+    float finalAlpha = color.a;
+    float blendFactor=mixPercent*finalAlpha;
+
+    color.rgb=mix(color.rgb, coverColor.rgb, blendFactor);
+    return color;
+  }
+}%
