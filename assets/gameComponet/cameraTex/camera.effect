@@ -29,7 +29,7 @@ CCProgram vs %{
     uv = a_texCoord;
     
     // 解决不同平台和渲染管线中 RenderTexture 的坐标系差异，可处理 RenderTexture 采样时的 UV 坐标翻转问题
-    //uv = CC_HANDLE_RT_SAMPLE_FLIP(uv);
+    uv = CC_HANDLE_RT_SAMPLE_FLIP(uv);
     
     return  pos;
   }

@@ -185,7 +185,7 @@
     "_priority": 1073741824,
     "_fov": 45,
     "_fovAxis": 0,
-    "_orthoHeight": 501.11856823266214,
+    "_orthoHeight": 528.9256198347107,
     "_near": 1,
     "_far": 2000,
     "_color": {
@@ -277,7 +277,7 @@
     "_fov": 45,
     "_fovAxis": 0,
     "_orthoHeight": 360,
-    "_near": 1,
+    "_near": 0,
     "_far": 2000,
     "_color": {
       "__type__": "cc.Color",
@@ -441,8 +441,8 @@
     "_prefab": null,
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": 37.441,
-      "y": -9.867,
+      "x": 505.574,
+      "y": 173.046,
       "z": 0
     },
     "_lrot": {
@@ -480,8 +480,8 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 1280,
-      "height": 750
+      "width": 192,
+      "height": 192
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -519,7 +519,7 @@
     },
     "_type": 0,
     "_fillType": 0,
-    "_sizeMode": 0,
+    "_sizeMode": 2,
     "_fillCenter": {
       "__type__": "cc.Vec2",
       "x": 0,
@@ -636,7 +636,7 @@
     },
     "_fillStart": 0,
     "_fillRange": 0,
-    "_isTrimmedMode": true,
+    "_isTrimmedMode": false,
     "_useGrayscale": false,
     "_atlas": null,
     "_id": "7dHFyO8YZNzo+rA/OA0bPZ"
