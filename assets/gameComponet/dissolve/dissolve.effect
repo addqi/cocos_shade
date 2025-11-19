@@ -1,0 +1,86 @@
+CCEffect %{
+  techniques:
+  - name: dissolve
+    passes:
+    - vert: vs:vert
+      frag: fs:frag
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+      depthStencilState:      
+          depthTest: false  
+          depthWrite: false 
+      rasterizerState:
+        cullMode: none
+      properties:
+        noiseTexture: { value: grey, editor: { tooltip: '噪声贴图' } }
+        dissolveThreshold: { value: 0.0, editor: { range: [0.0,1.0,0.01], slide: true, tooltip: '溶解阈值' } }
+}%
+
+
+CCProgram vs %{
+  precision highp float;
+
+  #include <cc-global>                  // 全局矩阵
+  #include <builtin/uniforms/cc-local>  // 世界矩阵（支持 Spine / DB mesh）
+
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec2 uv;
+  out vec4 v_color;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1.0);
+
+    // 处理本地空间的世界变换（Spine mesh 必须）
+    #if USE_LOCAL
+      pos = cc_matWorld * pos;
+    #endif
+
+    // 投影到屏幕
+    pos = cc_matViewProj * pos;
+
+    uv = a_texCoord;
+    v_color = a_color;
+
+    return pos;
+  }
+}%
+
+
+CCProgram fs %{
+  precision highp float;
+  #include <sprite-texture>
+  #include <builtin/internal/embedded-alpha>
+  #include <builtin/internal/alpha-test>
+  #include <builtin/uniforms/cc-global>
+
+  in vec2 uv;
+  in vec4 v_color;
+
+  uniform UBO {
+    float dissolveThreshold; 
+  };
+  
+  uniform sampler2D noiseTexture;
+
+
+  vec4 frag () {
+
+    vec4 color = texture(cc_spriteTexture, uv);
+
+    float dissolveAlpha = texture(noiseTexture, uv).r;
+
+    if(dissolveAlpha < dissolveThreshold+0.05){
+       color = vec4(0.9, 0.6, 0.3, color.a);  // 溶解的边缘设置一个橘色的边缘过渡色
+       if(dissolveAlpha<dissolveThreshold){
+          discard;
+       }
+    }
+    return color;
+  }
+}%

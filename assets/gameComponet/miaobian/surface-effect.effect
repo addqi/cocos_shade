@@ -18,7 +18,7 @@ CCEffect %{
         noiseTexture: { value: grey, editor: { tooltip: '噪声贴图' } }
         glowColor:  { value: [1.0, 0.8, 0.3, 1.0], editor: { type: color } }
         glowSpread: { value: 0.035, editor: { range: [0.0, 0.1, 0.005] } }
-        fireSpeed: { value: [1.0,1.0]}
+        fireSpeed: { value: [0.0,1.0]}
 }%
 
 
