@@ -1,0 +1,135 @@
+CCEffect %{
+  techniques:
+  - name: glow
+    passes:
+    - vert: vs:vert
+      frag: fs:frag
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+      depthStencilState:      
+          depthTest: false  
+          depthWrite: false 
+      rasterizerState:
+        cullMode: none
+      properties:
+        noiseTexture: { value: grey, editor: { tooltip: '噪声贴图' } }
+        glowColor:  { value: [1.0, 0.8, 0.3, 1.0], editor: { type: color } }
+        glowSpread: { value: 0.035, editor: { range: [0.0, 0.1, 0.005] } }
+        fireSpeed: { value: [1.0,1.0]}
+}%
+
+
+CCProgram vs %{
+  precision highp float;
+
+  #include <cc-global>                  // 全局矩阵
+  #include <builtin/uniforms/cc-local>  // 世界矩阵（支持 Spine / DB mesh）
+
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec2 uv;
+  out vec4 v_color;
+  out vec4 v_wp;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1.0);
+
+    // 处理本地空间的世界变换（Spine mesh 必须）
+    #if USE_LOCAL
+      pos = cc_matWorld * pos;
+    #endif
+
+    // 投影到屏幕
+    pos = cc_matViewProj * pos;
+
+    uv = a_texCoord;
+    v_color = a_color;
+
+    v_wp=pos;
+
+    return pos;
+  }
+}%
+
+
+CCProgram fs %{
+  precision highp float;
+  #include <sprite-texture>
+  #include <builtin/internal/embedded-alpha>
+  #include <builtin/internal/alpha-test>
+  #include <builtin/uniforms/cc-global>
+
+  in vec2 uv;
+  in vec4 v_color;
+  in vec4 v_wp;
+
+  uniform UBO {
+    vec4 glowColor;
+    vec2 fireSpeed;
+    float glowSpread; 
+  };
+  
+  uniform sampler2D noiseTexture;
+
+    vec4 fragFire (vec2 uv, vec4 mc, vec2 move,vec2 offmul){
+        vec4 c = vec4(0.0);
+        vec4 tex1 = texture(noiseTexture,uv*6.0+move);
+        vec2 off = tex1.xy;
+
+        off-= 0.5;
+        vec4 tex3 = texture(cc_spriteTexture, uv + off * offmul);
+        c.xyz=mc.xyz;
+        c.a=tex3.a;
+        return c;
+    }
+
+
+  vec4 frag () {
+
+    vec4 texColor = texture(cc_spriteTexture, uv);
+
+    float centerAlpha = texColor.a;
+
+    if(centerAlpha>0.5) return texColor;
+
+    float minDist = glowSpread;
+
+    const int DIR_COUNT = 80;
+    const int STEP_COUNT = 10;
+
+    float stepSize = glowSpread / float(STEP_COUNT);
+    const float PI = acos(-1.0);
+
+    for (int dir = 0; dir < DIR_COUNT; dir++) {
+
+      float angle = float(dir) / float(DIR_COUNT) * 2.0 * PI;
+      vec2 dirVec = vec2(cos(angle), sin(angle));
+
+      for (int s = 1; s <= STEP_COUNT; s++) {
+        float dist = float(s) * stepSize;
+        vec2 offset = dirVec * dist;
+
+        float a = texture(cc_spriteTexture, uv + offset).a;
+
+        if (a > 0.5) {
+          minDist = min(minDist, dist);
+          break;
+        }
+      }
+    }
+    float time = cc_time.x;        // 获取当前时间
+    vec4 color = texColor;
+    vec4 f1 = fragFire(uv,glowColor,time*fireSpeed,vec2(0.0,glowSpread));
+    if (minDist < glowSpread) {
+      color = glowColor;
+    }
+
+    color *=f1;
+    return color;
+  }
+}%
