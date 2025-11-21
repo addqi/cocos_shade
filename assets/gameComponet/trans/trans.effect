@@ -1,0 +1,104 @@
+CCEffect %{
+  techniques:
+  - name: dissolve
+    passes:
+    - vert: vs:vert
+      frag: fs:frag
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+      depthStencilState:      
+          depthTest: false  
+          depthWrite: false 
+      rasterizerState:
+        cullMode: none
+      properties:
+        textureSize: { value: [1280, 720], editor: { tooltip: '纹理宽高' } }
+        blurSize: { value: 35.0, editor: {  tooltip: '模糊范围' } }
+        isHorizontal: { value: 1.0, editor: { range: [0.0, 1.0, 1.0]} }
+}%
+
+
+CCProgram vs %{
+  precision highp float;
+
+  #include <cc-global>                  // 全局矩阵
+  #if USE_LOCAL
+  #include <builtin/uniforms/cc-local>  // 世界矩阵（支持 Spine / DB mesh）
+  #endif
+
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec2 uv;
+  out vec4 v_color;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1.0);
+
+    // 处理本地空间的世界变换（Spine mesh 必须）
+    #if USE_LOCAL
+      pos = cc_matWorld * pos;
+    #endif
+
+    // 投影到屏幕
+    pos = cc_matViewProj * pos;
+
+    uv = a_texCoord;
+    v_color = a_color;
+
+    return pos;
+  }
+}%
+
+
+CCProgram fs %{
+  precision highp float;
+  #include <sprite-texture>
+  #include <builtin/uniforms/cc-global>
+  in vec2 uv;
+
+  uniform UBO {
+    vec2 textureSize;
+    float blurSize;    // 模糊半径
+    float isHorizontal;//1水平模糊 0 垂直模糊 
+  };
+  // 11点采样的高斯权重(σ=4.0)
+  const float w0 = 0.11992; 
+  const float w1 = 0.11618;  
+  const float w2 = 0.10583; 
+  const float w3 = 0.09052;  
+  const float w4 = 0.07272;   
+  const float w5 = 0.05483;  
+  
+  float gaussian(float x, float sigma) {
+    return exp(-(x * x) / (2.0 * sigma * sigma)) / (sqrt(6.2831853) * sigma);
+  }
+
+  vec4 frag () {
+    vec2 u_texel= vec2(1.0,1.0)/textureSize;
+    vec4 sum = vec4(0.0);
+
+    vec2 direction = isHorizontal > 0.5 ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+    vec2 texel = blurSize / 5.0 * vec2(u_texel.x, u_texel.y) * direction;
+    sum += texture(cc_spriteTexture,uv)*w0;
+
+    // 对称采样
+    for(int i = 1; i <= 5; i++) {
+      float weight;
+      if(i == 1) weight = w1;
+      else if(i == 2) weight = w2;
+      else if(i == 3) weight = w3;
+      else if(i == 4) weight = w4;
+      else weight = w5;
+      
+      sum += texture(cc_spriteTexture, uv + texel * float(i)) * weight;
+      sum += texture(cc_spriteTexture, uv - texel * float(i)) * weight;
+    }
+
+    return sum;
+  }
+}%

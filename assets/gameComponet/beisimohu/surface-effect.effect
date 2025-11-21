@@ -1,0 +1,114 @@
+CCEffect %{
+  techniques:
+  - name: dissolve
+    passes:
+    - vert: vs:vert
+      frag: fs:frag
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+      depthStencilState:      
+          depthTest: false  
+          depthWrite: false 
+      rasterizerState:
+        cullMode: none
+      properties:
+        textureSize: { value: [1280, 720], editor: { tooltip: '纹理宽高' } }
+        blurSize: { value: 35.0, editor: {  tooltip: '模糊范围' } }
+        halfSampleCount: { value: 15.0, editor: { range: [1.0, 30.0, 1.0], tooltip: '采样半径(一侧)' } }
+        sigma: { value: 8.0, editor: { range: [0.1, 20.0, 0.1], tooltip: '高斯σ' } }
+}%
+
+
+CCProgram vs %{
+  precision highp float;
+
+  #include <cc-global>                  // 全局矩阵
+  #if USE_LOCAL
+  #include <builtin/uniforms/cc-local>  // 世界矩阵（支持 Spine / DB mesh）
+  #endif
+
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec2 uv;
+  out vec4 v_color;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1.0);
+
+    // 处理本地空间的世界变换（Spine mesh 必须）
+    #if USE_LOCAL
+      pos = cc_matWorld * pos;
+    #endif
+
+    // 投影到屏幕
+    pos = cc_matViewProj * pos;
+
+    uv = a_texCoord;
+    v_color = a_color;
+
+    return pos;
+  }
+}%
+
+
+CCProgram fs %{
+  precision highp float;
+  #include <sprite-texture>
+  #include <builtin/uniforms/cc-global>
+  in vec2 uv;
+
+  uniform UBO {
+    vec2 textureSize;
+    float blurSize;    // 模糊半径
+    float halfSampleCount;
+    float sigma;
+  };
+  
+  float gaussian(float x, float s) {
+    return exp(- (x * x) / (2.0 * s * s));
+  }
+
+  vec4 frag () {
+    vec2 u_texel= vec2(1.0,1.0)/textureSize;
+    vec2 dir = uv - vec2(0.5,0.5);
+    float dist = length(dir);
+
+    if(dist<0.001){
+      return texture(cc_spriteTexture,uv);
+    }
+    float sampleCount = max(1.0, halfSampleCount);
+    vec2 dirNorm = dir / dist;  // 当前像素的单位方向向量
+    vec2 texel = blurSize / sampleCount * vec2(u_texel.x, u_texel.y) * dirNorm;  // 每一步的 UV 空间偏移量
+
+    vec4 sum = vec4(0.0);
+    float weightSum = 0.0;
+    
+    // 中心点采样权重
+    float centerWeight = gaussian(0.0, sigma);
+    sum += texture(cc_spriteTexture, uv) * centerWeight;
+    weightSum += centerWeight;
+
+    // 对称采样正负方向
+    for (int i = 1; i <= 30; i++) {   // 循环上限写死为30
+      if(float(i) > sampleCount) break;  // 实际由 halfSampleCount 控制循环上限
+
+ 
+      float w = gaussian(float(i), sigma);
+      vec2 offset = float(i) * texel;
+
+      // 沿射线方向采样
+      vec4 sample1 = texture(cc_spriteTexture, uv + offset);  // 远离中心
+      vec4 sample2 = texture(cc_spriteTexture, uv - offset);  // 朝向中心
+
+      sum += (sample1 + sample2) * w;
+      weightSum += 2.0 * w;
+    }
+    
+    return sum / weightSum;
+  }
+}%
