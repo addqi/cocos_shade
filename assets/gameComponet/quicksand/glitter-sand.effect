@@ -1,0 +1,223 @@
+// glitter-sand.effect — Cocos Creator 3.x
+// 程序化颗粒噪声（沙粒感）+ Voronoi 星光粒子（闪烁）
+
+CCEffect %{
+  techniques:
+  - name: transparent
+    passes:
+    - vert: sprite-vs:vert
+      frag: sprite-fs:frag
+      depthStencilState:
+        depthTest: false
+        depthWrite: false
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendSrcAlpha: src_alpha
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+      properties:
+        mainTexture:       { value: white }
+        sparkleTex:        { value: white }
+        # 沙粒底色，默认沙黄色，xyz=RGB, w=alpha
+        sandColor:         { value: [0.87, 0.72, 0.42, 1.0], editor: { type: color } }
+        # glitterParams: x=noisePow, y=noiseMul, z=noiseScl
+        glitterParams:     { value: [17.0, 1.4, 30.0, 0.0], editor: { type: vec4 } }
+        # sparkleGridXY: x=baseGridX, y=baseGridY, z=layer1Ratio, w=layer2Ratio
+        sparkleGridXY:     { value: [172.0, 172.0, 1.167, 1.4], editor: { type: vec4 } }
+        sparkleDurations:  { value: [1.93,  2.93,  4.93,  0.0], editor: { type: vec4 } }
+        sparkleDelays:     { value: [0.0,   0.38,  0.75,  0.0], editor: { type: vec4 } }
+        # sparkleThresholds: xyz=每层密度阈值, w=最终亮度乘数
+        sparkleThresholds: { value: [0.095, 0.075, 0.057, 1.0], editor: { type: vec4 } }
+}%
+
+
+// ─────────────────────────────────────────────
+// 顶点着色器
+// ─────────────────────────────────────────────
+CCProgram sprite-vs %{
+  precision highp float;
+
+  #include <builtin/uniforms/cc-global>
+
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec4 v_color;
+  out vec2 v_uv0;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1.0);
+    pos = cc_matViewProj * pos;
+    v_uv0 = a_texCoord;
+    v_color = a_color;
+    return pos;
+  }
+}%
+
+
+// ─────────────────────────────────────────────
+// 片元着色器
+// ─────────────────────────────────────────────
+CCProgram sprite-fs %{
+  precision highp float;
+
+  #include <builtin/uniforms/cc-global>
+
+  in vec4 v_color;
+  in vec2 v_uv0;
+
+  uniform sampler2D mainTexture;
+  uniform sampler2D sparkleTex;
+
+  uniform Constant {
+    vec4 sandColor;         // xyz=RGB底色, w=alpha
+    vec4 glitterParams;     // x=noisePow, y=noiseMul, z=noiseScl
+    vec4 sparkleGridXY;     // x=gridX, y=gridY, z=lr1, w=lr2
+    vec4 sparkleDurations;
+    vec4 sparkleDelays;
+    vec4 sparkleThresholds;
+  };
+
+
+  // ────────────────────────────────
+  // 工具函数
+  // ────────────────────────────────
+
+  // 白噪声：floor 量化 → 同格内像素共享同一随机值 → 颗粒有面积
+  float grainNoise(vec2 p) {
+    vec2 i = floor(p);
+    return fract(sin(dot(i, vec2(12.9898, 78.233))) * 43758.5453);
+  }
+
+  // 2D hash，seed 打散不同层的随机性
+  float hash21(vec2 p, float seed) {
+    p += seed;
+    p = fract(p * vec2(233.34, 851.73));
+    p += dot(p, p + 23.45);
+    return fract(p.x * p.y);
+  }
+
+  // ────────────────────────────────
+  // 单层星光粒子
+  // Voronoi jitter + 3×3 邻域搜索，确保粒子跨格时无硬裁切
+  // ────────────────────────────────
+  float sampleSparkleLayer(
+    vec2 uv,
+    vec2 gridCount,
+    float duration,
+    float delay,
+    float threshold,
+    float seed
+  ) {
+    float time   = cc_time.x;
+    vec2 gridUV  = uv * gridCount;
+    vec2 baseCell = floor(gridUV);
+    float acc    = 0.0;
+
+    for (int dy = -1; dy <= 1; dy++) {
+      for (int dx = -1; dx <= 1; dx++) {
+        vec2 cell = baseCell + vec2(float(dx), float(dy));
+
+        // 该格是否存在粒子（概率 = threshold）
+        float rand = hash21(cell, seed);
+        if (rand > threshold) continue;
+
+        // 粒子中心随机偏移 [0.25, 0.75]，打破网格对齐感
+        vec2 center = cell + vec2(
+          0.25 + hash21(cell, seed + 47.0) * 0.5,
+          0.25 + hash21(cell, seed + 91.0) * 0.5
+        );
+        vec2 diff = gridUV - center;
+
+        // 随机大小 [0.6, 1.4]
+        float sizeVar = 0.6 + hash21(cell, seed + 211.0) * 0.8;
+
+        // 每颗粒子独立的时长和延迟（±40% 随机差异，避免同步闪烁）
+        float durVar = duration * (0.6 + hash21(cell, seed + 317.0) * 0.8);
+        float delVar = delay + hash21(cell, seed + 419.0) * duration * 0.7;
+
+        // 动画曲线：sin 半波整流 + pow 拉锐
+        // 效果：亮部短暂尖锐，暗部停留更长 → 闪光感
+        float phase = rand * 6.2831853;
+        float t     = time - delVar;
+        float anim  = pow(max(sin(t * 6.2831853 / durVar + phase), 0.0), 1.5);
+        float scale = max(anim * sizeVar, 0.01);
+
+        // 映射到纹理坐标
+        vec2 sUV = diff / scale + 0.5;
+        if (sUV.x < 0.0 || sUV.x > 1.0 || sUV.y < 0.0 || sUV.y > 1.0) continue;
+
+        acc += texture(sparkleTex, sUV).a * anim;
+      }
+    }
+    return acc;
+  }
+
+
+  // ────────────────────────────────
+  // 主函数
+  // ────────────────────────────────
+  vec4 frag () {
+    vec4 texSample = texture(mainTexture, v_uv0);
+
+    // mainTexture 只用于形状遮罩（alpha），底色由 sandColor 控制
+    // 这样即使 mainTexture 是默认白色，沙粒色也正常显示
+    float maskAlpha = texSample.a * sandColor.w;
+    if (maskAlpha < 0.01) discard;
+
+    vec4 baseColor = vec4(sandColor.rgb, maskAlpha);
+
+
+    // ── 颗粒噪声层 ──────────────────
+    // 5 层白噪声，每层角速度互素避免同步，max 取最亮值
+    // 结果用极高次幂（≈180）压缩 → 99.9% 区域为0，极少数格子极亮 → 稀疏沙粒
+    float gt  = cc_time.x;
+    float d   = gt * 0.28;
+    float raw = 0.0;
+
+    float ang0 = 0.5 * gt * 0.037;
+    raw = max(raw, grainNoise(v_uv0 * 3470.0 + vec2(cos(ang0), sin(ang0)) * d * 1.25));
+
+    float ang1 = 0.5 * gt * 0.059 + 1.3;
+    raw = max(raw, grainNoise(v_uv0 * 4570.0 + vec2(cos(ang1), sin(ang1)) * d * 1.43 + 71.0));
+
+    float ang2 = 0.5 * gt * 0.083 + 2.7;
+    raw = max(raw, grainNoise(v_uv0 * 4270.0 + vec2(cos(ang2), sin(ang2)) * d * 1.30 + 149.0));
+
+    float ang3 = 0.3 * gt * 0.113 + 4.1;
+    raw = max(raw, grainNoise(v_uv0 * 5270.0 + vec2(cos(ang3), sin(ang3)) * d * 4.03 + 249.0));
+
+    float ang4 = 0.2 * gt * 0.147 + 5.5;
+    raw = max(raw, grainNoise(v_uv0 * 6270.0 + vec2(cos(ang4), sin(ang4)) * d * 6.24 + 549.0));
+
+    float noiseVal = exp2(log2(max(raw, 1e-6)) * 180.0) * glitterParams.y;
+
+
+    // ── 星光粒子层 ───────────────────
+    // 3 层，密度递增，节奏差异化，错开 seed 避免位置重叠
+    vec2 baseGrid = sparkleGridXY.xy;
+    float sparkle = 0.0;
+    sparkle += sampleSparkleLayer(v_uv0, baseGrid,
+                 sparkleDurations.x, sparkleDelays.x, sparkleThresholds.x, 0.0);
+    sparkle += sampleSparkleLayer(v_uv0, baseGrid * sparkleGridXY.z,
+                 sparkleDurations.y, sparkleDelays.y, sparkleThresholds.y, 137.0);
+    sparkle += sampleSparkleLayer(v_uv0, baseGrid * sparkleGridXY.w,
+                 sparkleDurations.z, sparkleDelays.z, sparkleThresholds.z, 291.0);
+
+
+    // ── 合成 ─────────────────────────
+    // 颗粒噪声：加法叠加（直接增亮底色）
+    vec3 afterNoise   = clamp(baseColor.rgb + vec3(noiseVal), 0.0, 1.0);
+    // 星光：Normal Blend 到白色
+    float sparkleAlpha = clamp(sparkle * sparkleThresholds.w, 0.0, 1.0);
+    vec3 result       = mix(afterNoise, vec3(1.0), sparkleAlpha);
+
+    vec4 o = vec4(result, maskAlpha) * v_color;
+    return o;
+  }
+}%
