@@ -1,0 +1,137 @@
+// water-surface.effect — Cocos Creator 3.x
+// 纯 Shader 2D 水面：多层正弦波浪 + 深度渐变 + 泡沫高光 + 水下波纹
+// 使用方式：创建材质 → 选此 Shader → 拖到 Sprite 的 Custom Material
+
+CCEffect %{
+  techniques:
+  - name: transparent
+    passes:
+    - vert: sprite-vs:vert
+      frag: sprite-fs:frag
+      depthStencilState:
+        depthTest: false
+        depthWrite: false
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendSrcAlpha: src_alpha
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+      properties:
+        mainTexture:    { value: white }
+        # 水面位置（UV空间 0~1，0=底部 1=顶部）
+        surfaceLevel:   { value: 0.75, editor: { slide: true, range: [0.3, 0.95, 0.01] } }
+        # 波浪参数
+        waveSpeed:      { value: 1.5,  editor: { slide: true, range: [0.0, 10.0, 0.1] } }
+        waveCount:      { value: 6.0,  editor: { slide: true, range: [1.0, 30.0, 0.5] } }
+        waveSize:       { value: 0.03, editor: { slide: true, range: [0.0, 0.15, 0.005] } }
+        waveDirection:  { value: 1.0,  editor: { slide: true, range: [-1.0, 1.0, 0.1] } }
+        # 颜色
+        shallowColor:   { value: [0.25, 0.55, 0.9, 0.85], editor: { type: color } }
+        deepColor:      { value: [0.05, 0.15, 0.45, 0.95], editor: { type: color } }
+        foamColor:      { value: [0.85, 0.95, 1.0, 1.0],   editor: { type: color } }
+        # 泡沫
+        foamWidth:      { value: 0.02, editor: { slide: true, range: [0.0, 0.08, 0.005] } }
+        foamIntensity:  { value: 0.7,  editor: { slide: true, range: [0.0, 1.0, 0.05] } }
+        # 水下波纹扰动
+        rippleStrength: { value: 0.008, editor: { slide: true, range: [0.0, 0.05, 0.001] } }
+        rippleDensity:  { value: 25.0,  editor: { slide: true, range: [5.0, 60.0, 1.0] } }
+}%
+
+
+CCProgram sprite-vs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec4 v_color;
+  out vec2 v_uv0;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1.0);
+    pos = cc_matViewProj * pos;
+    v_uv0 = a_texCoord;
+    v_color = a_color;
+    return pos;
+  }
+}%
+
+
+CCProgram sprite-fs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+
+  in vec4 v_color;
+  in vec2 v_uv0;
+
+  uniform sampler2D mainTexture;
+
+  uniform Constant {
+    vec4  shallowColor;
+    vec4  deepColor;
+    vec4  foamColor;
+    float surfaceLevel;
+    float waveSpeed;
+    float waveCount;
+    float waveSize;
+    float waveDirection;
+    float foamWidth;
+    float foamIntensity;
+    float rippleStrength;
+    float rippleDensity;
+  };
+
+  // 三层正弦波叠加（与 WaterController.ts _calcWaveOffset 保持一致）
+  float calcWave(float x, float t) {
+    float w = 0.0;
+    w += sin(x * waveCount       + t * waveSpeed * waveDirection)             * 1.0;
+    w += sin(x * waveCount * 1.8 + t * waveSpeed * 1.4 * waveDirection)      * 0.35;
+    w += sin(x * waveCount * 3.6 + t * waveSpeed * 2.2 * waveDirection)      * 0.12;
+    return w * waveSize;
+  }
+
+  vec4 frag () {
+    vec2 uv = v_uv0;
+    float t = cc_time.x;
+
+    // 计算波浪线（UV 空间 Y 坐标）
+    float wave = calcWave(uv.x, t);
+    float surface = surfaceLevel + wave;
+
+    // 水面之上 → 透明
+    if (uv.y > surface) {
+      discard;
+    }
+
+    // 深度比例：0=水面，1=最深
+    float depth = clamp((surface - uv.y) / surface, 0.0, 1.0);
+
+    // 水体颜色：浅→深渐变
+    vec4 waterCol = mix(shallowColor, deepColor, depth);
+
+    // 水下波纹扰动：对纹理 UV 做 sin 偏移采样
+    vec2 rippleUV = uv;
+    rippleUV.x += sin(uv.y * rippleDensity + t * 1.5) * rippleStrength;
+    rippleUV.y += sin(uv.x * rippleDensity * 0.7 + t * 1.1) * rippleStrength * 0.6;
+    vec4 texCol = texture(mainTexture, rippleUV);
+
+    // 纹理与水色混合（纹理主要影响水下部分）
+    waterCol.rgb = mix(waterCol.rgb, waterCol.rgb * texCol.rgb, 0.4);
+
+    // 泡沫高光（水面附近）
+    float foamMask = smoothstep(surface - foamWidth, surface, uv.y);
+    waterCol.rgb = mix(waterCol.rgb, foamColor.rgb, foamMask * foamIntensity);
+
+    // 水面边缘微亮（模拟菲涅尔）
+    float edgeGlow = smoothstep(surface - foamWidth * 3.0, surface - foamWidth, uv.y) * 0.15;
+    waterCol.rgb += vec3(edgeGlow);
+
+    return waterCol * v_color;
+  }
+}%
