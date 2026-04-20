@@ -1,5 +1,10 @@
 {
   "__version__": "1.0.6",
   "custom_joint_texture_layouts": [],
-  "layer": []
+  "layer": [
+    {
+      "name": "lighting",
+      "value": 1
+    }
+  ]
 }

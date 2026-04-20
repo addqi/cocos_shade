@@ -1,0 +1,88 @@
+CCEffect %{
+  techniques:
+  - name: lightning-glow
+    passes:
+    - vert: vs:vert
+      frag: fs:frag
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+      depthStencilState:
+          depthTest: false
+          depthWrite: false
+      rasterizerState:
+        cullMode: none
+      properties:
+        bgTexture: { value: grey, editor: { tooltip: '闪电 RenderTexture' } }
+        glowColor: { value: [0.4, 0.6, 1.0, 1.0], editor: { type: color, tooltip: '辉光颜色' } }
+        glowSpread: { value: 0.04, editor: { range: [0.005, 0.2, 0.005], slide: true, tooltip: '辉光扩散半径' } }
+        glowIntensity: { value: 2.0, editor: { range: [0.5, 8.0, 0.1], slide: true, tooltip: '辉光亮度' } }
+}%
+
+
+CCProgram vs %{
+  precision highp float;
+  #include <cc-global>
+  #include <common/common-define>
+
+  in vec3 a_position;
+  in vec2 a_texCoord;
+
+  out vec2 uv;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1.0);
+    pos = cc_matViewProj * pos;
+    uv = a_texCoord;
+    uv = CC_HANDLE_RT_SAMPLE_FLIP(uv);
+    return pos;
+  }
+}%
+
+
+CCProgram fs %{
+  precision highp float;
+  #include <sprite-texture>
+
+  in vec2 uv;
+
+  uniform sampler2D bgTexture;
+
+  uniform UBO {
+    vec4  glowColor;
+    float glowSpread;
+    float glowIntensity;
+  };
+
+  vec4 frag () {
+    vec4 texColor = texture(bgTexture, uv);
+
+    if (texColor.a > 0.5) return texColor;
+
+    float glow = 0.0;
+    float wTotal = 0.0;
+
+    for (int dir = 0; dir < 24; dir++) {
+      float angle = 6.2831853 * float(dir) / 24.0;
+      vec2 d = vec2(cos(angle), sin(angle));
+
+      for (int s = 1; s <= 12; s++) {
+        float t = float(s) / 12.0;
+        vec2 offset = d * t * glowSpread;
+        float w = exp(-t * t * 3.0);
+        glow += texture(bgTexture, uv + offset).a * w;
+        wTotal += w;
+      }
+    }
+
+    glow /= wTotal;
+    glow = pow(glow, 0.6) * glowIntensity;
+    glow = clamp(glow, 0.0, 1.0);
+
+    if (glow < 0.001) return vec4(0.0);
+
+    return vec4(glowColor.rgb * glow, glow * glowColor.a);
+  }
+}%
